@@ -1294,7 +1294,6 @@ class NinjaWriter(object):
         module_path = self._GetSwiftModulePath(config_name, spec, arch)
         ldflags += self.xcode_settings.GetSwiftLdflags(config_name, module_path)
         implicit_deps.add(module_path)
-        print(ldflags)
 
     def CopySwiftLibsToBundle(self, spec):
         is_final = spec["type"] in ("executable", "loadable_module")
@@ -1302,10 +1301,8 @@ class NinjaWriter(object):
         # swift files itself, because some of the dependent libs can have it.
         if not gyp.xcode_emulation.IsSwiftSupported() or not is_final:
             return None
-
         if not self.target.binary:
             return None
-
         # Copying all needed Swift dylibs right into the bundle
         app_frameworks_path = (
             self.xcode_settings.GetBundleFrameworksFolderPath())
@@ -2688,8 +2685,10 @@ def GenerateOutputForConfig(target_list, target_dicts, data, params, config_name
             master_ninja.variable(
                 "readelf", GetEnvironFallback(["READELF_target", "READELF"], readelf)
             )
+
     if flavor == "mac" and gyp.xcode_emulation.IsSwiftSupported():
-        swift_path =  subprocess.check_output(["xcrun", "-f", "swift"]).decode(sys.stdout.encoding)
+        swift_path =  subprocess.check_output(
+            ["xcrun", "-f", "swift"]).decode(sys.stdout.encoding)
         master_ninja.variable("swift", swift_path)
 
     if generator_supports_multiple_toolsets:
@@ -3066,7 +3065,7 @@ def GenerateOutputForConfig(target_list, target_dicts, data, params, config_name
         master_ninja.rule(
             "link",
             description="LINK $out, POSTBUILDS",
-            command=("$ld $ldflags -o $out " "$in $solibs $libs$postbuilds"),
+            command=("$ld $ldflags -o $out " "$in $solibs $libs $postbuilds"),
             pool="link_pool",
         )
         master_ninja.rule(

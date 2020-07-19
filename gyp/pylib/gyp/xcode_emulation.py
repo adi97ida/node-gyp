@@ -873,15 +873,17 @@ class XcodeSettings(object):
         return swift_flags
 
     def GetSwiftLdflags(self, configname, arch_module_path):
-        print("GetSwiftLdflags")
         ldflags = []
         platform = self.GetPlatform(configname)
         libs_path = self._GetCommonLibsPath()
 
         swift_libs_path = os.path.join(libs_path, "swift", platform)
         assert os.path.isdir(swift_libs_path)
+        swift_5_libs_path = os.path.join(libs_path, "swift-5.0", platform)
+        assert os.path.isdir(swift_5_libs_path)
         ldflags.append("-Xlinker -add_ast_path -Xlinker " + arch_module_path)
         ldflags.append("-L" + swift_libs_path)
+        ldflags.append("-L" + swift_5_libs_path)
         return ldflags
 
     def GetCflagsC(self, configname):
