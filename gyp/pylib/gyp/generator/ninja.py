@@ -147,6 +147,8 @@ class Target(object):
         # here. In this case, we also need to save the compile_deps for the target,
         # so that the target that directly depends on the .objs can also depend
         # on those.
+        self.module_stamp = None
+        # Path to the file representing completion of building module, if any.
         self.component_objs = None
         self.compile_deps = None
         # Windows only. The import .lib is the output of a build step, but
@@ -156,6 +158,8 @@ class Target(object):
         # Track if this target contains any C++ files, to decide if gcc or g++
         # should be used for linking.
         self.uses_cpp = False
+        # Track if there are any swift sources
+        self.uses_swift = False
 
     def Linkable(self):
         """Return true if this is a target that can be linked against."""
@@ -320,6 +324,9 @@ class NinjaWriter(object):
             path = self.ExpandSpecial(path)
         assert "$" not in path, path
         return os.path.normpath(os.path.join(self.build_to_base, path))
+    
+    def GypPathToNinjaWithToolchain(self, path):
+        return self.GypPathToNinja(path, self.GetToolchainEnv())
 
     def GypPathToUniqueOutput(self, path, qualified=True):
         """Translate a gyp path to a ninja path for writing output.
@@ -440,6 +447,7 @@ class NinjaWriter(object):
         # any of its compile steps.
         actions_depends = []
         compile_depends = []
+        module_depends = []
         # TODO(evan): it is rather confusing which things are lists and which
         # are strings.  Fix these.
         if "dependencies" in spec:
@@ -448,6 +456,7 @@ class NinjaWriter(object):
                     target = self.target_outputs[dep]
                     actions_depends.append(target.PreActionInput(self.flavor))
                     compile_depends.append(target.PreCompileInput())
+                    module_depends.append(target.module_stamp)
                     if target.uses_cpp:
                         self.target.uses_cpp = True
             actions_depends = [item for item in actions_depends if item]
@@ -458,6 +467,10 @@ class NinjaWriter(object):
             compile_depends = self.WriteCollapsedDependencies(
                 "compile_depends", compile_depends
             )
+            module_depends = filter(None, module_depends)
+            if (self.flavor == 'mac' and
+                    self.xcode_settings.AreModulesEnabled(config_name)):
+                compile_depends += module_depends
             self.target.preaction_stamp = actions_depends
             self.target.precompile_stamp = compile_depends
 
@@ -475,6 +488,14 @@ class NinjaWriter(object):
         # We never need to explicitly depend on previous target's link steps,
         # because no compile ever depends on them.
         compile_depends_stamp = self.target.actions_stamp or compile_depends
+
+        if self.flavor == 'mac':
+            # Module should be written before compilation, because Swift compiler
+            # use it
+            module_stamp = self.WriteModule(self.ninja, compile_depends_stamp,
+                                            config_name, spec)
+            if module_stamp:
+                compile_depends_stamp = module_stamp
 
         # Write out the compilation steps, if any.
         link_deps = []
@@ -1014,6 +1035,292 @@ class NinjaWriter(object):
         )
         bundle_depends.append(out)
 
+    def _AddSwiftModuleExt(self, module):
+        return module + '.swiftmodule'
+
+    def _GetSwiftModulePath(self, config_name, spec, arch=None):
+        module_path = self._AddSwiftModuleExt(
+            self.xcode_settings.GetProductModuleName(config_name))
+        if self._IsFramework(spec):
+            module_path = os.path.join(
+                self.xcode_settings.GetBundleModulesFolderPath(), module_path)
+        if arch:
+            # Fixing path for armv7, since Xcode expects it to have 'arm' name instead
+            if arch == 'armv7':
+                arch = 'arm'
+            module_path = os.path.join(module_path, self._AddSwiftModuleExt(arch))
+        return module_path
+
+    def WriteFrameworkHeaders(self, ninja_file, headers, headers_dir):
+        outputs = []
+        for header in headers:
+            out_path = os.path.join(headers_dir, os.path.basename(header))
+            outputs.append(out_path)
+            self.ninja.build(out_path, 'mac_tool', header,
+                            variables=[('mactool_cmd', 'copy-bundle-resource'), \
+                                        ('binary', False)])
+        return outputs
+
+    def _GetModuleMapFilePath(self):
+        return os.path.join(self.xcode_settings.GetBundleModulesFolderPath(),
+                            'module.modulemap')
+
+    def _IsFramework(self, spec):
+        is_framework = (spec['type'] == 'shared_library') and self.is_mac_bundle
+        return is_framework
+
+    def WriteModule(self, ninja_file, predepends, config_name, spec):
+        """Write build rules to build Clang module."""
+        if not self.xcode_settings.IsModuleDefined(config_name):
+            return None
+        if not self._IsFramework(spec):
+            # There are no any actions by Xcode for non-framework targets
+            return None
+
+        assert self.xcode_settings.AreModulesEnabled(config_name)
+
+        ninja_file.newline()
+
+        module_inputs = []
+        # Copying headers to framework
+        public_headers = map(self.GypPathToNinja,
+                            list(spec.get('mac_framework_headers', [])))
+        module_inputs += self.WriteFrameworkHeaders(
+            ninja_file, public_headers,
+            self.xcode_settings.GetBundlePublicHeadersFolderPath())
+
+        private_headers = map(self.GypPathToNinja,
+                            list(spec.get('mac_framework_private_headers', [])))
+        module_inputs += self.WriteFrameworkHeaders(
+            ninja_file, private_headers,
+            self.xcode_settings.GetBundlePrivateHeadersFolderPath())
+
+        module_name = self.xcode_settings.GetProductModuleName(config_name)
+        umbrella_header = None
+        for header in public_headers:
+            filename, _ = os.path.splitext(os.path.basename(header))
+            if filename == module_name:
+                umbrella_header = header
+                break
+
+        assert umbrella_header
+
+        # Building module map file in the /Modules folder
+        module_map_path = self._GetModuleMapFilePath()
+        variables = {
+            'module_name': module_name,
+            'umbrella_header': os.path.basename(umbrella_header),
+            'map_file': QuoteShellArgument(module_map_path, self.flavor)
+        }
+        module_map_stamp = self.GypPathToUniqueOutput('modulemap.stamp')
+        self.ninja.build(module_map_stamp, 'modulemap', [umbrella_header],
+                        variables=variables)
+        module_inputs.append(module_map_stamp)
+
+        # Resulting module stamp
+        module_stamp = self.GypPathToUniqueOutput('module.stamp')
+        self.ninja.build(module_stamp, 'stamp', module_inputs,
+                        order_only=predepends)
+        self.target.module_stamp = module_stamp
+        ninja_file.newline()
+        return module_stamp
+
+    def _as_list(self, input):
+        if input is None:
+            return []
+        if isinstance(input, list):
+            return input
+        return [input]
+
+    def WriteSwiftSourcesForArch(self, ninja_file, config_name, sources,
+                                predepends, spec, arch=None):
+        print("WriteSwiftSourcesForArch")
+        assert self.flavor == 'mac'
+
+        # Collecting all Swift sources
+        swift_sources = []
+        for source in sources:
+            filename, ext = os.path.splitext(source)
+            ext = ext[1:]
+            if ext == 'swift':
+                swift_sources.append(self.GypPathToNinja(source))
+        if not swift_sources:
+            return ([], None)
+
+        if not gyp.xcode_emulation.IsSwiftSupported():
+            raise Exception('You are trying to build Swift files '
+                            'with unsupported Xcode version.')
+        self.uses_swift = True
+
+        if not arch:
+            arch = self.archs[0]
+
+        # Writing compile flags
+        swift_compile_flags = self.xcode_settings.GetSwiftCompileFlags(
+            config_name, self.GypPathToNinjaWithToolchain, arch)
+        self.WriteVariableList(ninja_file, 'swift_compile_flags',
+                            map(self.ExpandSpecial, swift_compile_flags))
+        ninja_file.newline()
+
+        single_rule = self.xcode_settings.IsSwiftWMOEnabled(config_name)
+
+        # Writing per-file rules
+        link_deps = []
+        partial_modules = []
+        for source in swift_sources:
+            print("fuck")
+            filename, ext = os.path.splitext(os.path.basename(source))
+            obj_path = self.GypPathToUniqueOutput(filename + self.obj_ext)
+            obj_path = AddArch(obj_path, arch)
+            src_module_path = self.GypPathToUniqueOutput(
+                self._AddSwiftModuleExt(filename))
+            src_module_path = AddArch(src_module_path, arch)
+
+            link_deps.append(obj_path)
+            partial_modules.append(src_module_path)
+
+            if not single_rule:
+                compile_input = [source]
+                for another_source in swift_sources:
+                    if source != another_source:
+                        compile_input.append(another_source)
+
+                variables = {
+                'out_obj': QuoteShellArgument(obj_path, self.flavor),
+                'out_module': QuoteShellArgument(src_module_path, self.flavor)
+                }
+                ninja_file.build([obj_path, src_module_path], 'swift_perfile',
+                                compile_input, variables=variables,
+                                order_only=predepends)
+
+        module_predepends = self._as_list(predepends)
+
+        # Writing header for first arch without arch extension.
+        # Obj sources will use it when referencing to <Module>-Swift.h file
+        common_header_path = self.xcode_settings.GetSwiftHeaderPath(
+            config_name, self.GypPathToNinja)
+        if arch == self.archs[0]:
+            header_path = common_header_path
+        else:
+            header_path = self.xcode_settings.GetSwiftHeaderPath(
+                config_name, self.GypPathToNinja, arch)
+            module_predepends.append(common_header_path)
+
+        module_path = self._GetSwiftModulePath(config_name, spec, arch)
+
+        if single_rule:
+            out_objects = ''
+            for obj in link_deps:
+                out_objects += ' -o ' + obj
+            variables = {
+                'out_module': QuoteShellArgument(module_path, self.flavor),
+                'out_header': QuoteShellArgument(header_path, self.flavor),
+                'out_objects': QuoteShellArgument(out_objects, self.flavor),
+                'num_threads': str(multiprocessing.cpu_count())
+            }
+            ninja_file.build(link_deps + [module_path, header_path], 'swift',
+                            swift_sources, variables=variables,
+                            order_only=module_predepends)
+        else:
+            # Writing Swift merge flags
+            ninja_file.newline()
+            swift_merge_flags = self.xcode_settings.GetSwiftMergeFlags(
+                config_name, self.GypPathToNinjaWithToolchain, arch)
+            self.WriteVariableList(ninja_file, 'swift_merge_flags',
+                                    map(self.ExpandSpecial, swift_merge_flags))
+            # Writing merge rule
+            ninja_file.newline()
+            variables = {
+                'out_module': QuoteShellArgument(module_path, self.flavor),
+                'out_header': QuoteShellArgument(header_path, self.flavor),
+            }
+            ninja_file.build([module_path, header_path], 'swift_merge',
+                            partial_modules, variables=variables,
+                            order_only=module_predepends)
+            ninja_file.newline()
+
+        return (link_deps, module_path)
+
+    def WriteSwiftModule(self, ninja_file, config_name, spec):
+        """Write build rules to build Swift module data"""
+        if not self.uses_swift:
+            return
+
+        assert self.xcode_settings.AreModulesEnabled(config_name)
+
+        ninja_file.newline()
+
+        module_inputs = []
+        map_depends = []
+        for arch in self.archs:
+            swift_module_path = self._GetSwiftModulePath(config_name, spec, arch)
+            module_inputs.append(swift_module_path)
+            map_depends.append(swift_module_path)
+
+        if self._IsFramework(spec):
+            assert self.xcode_settings.IsModuleDefined(config_name)
+
+            # Copying Swift header to framework
+            swift_header = self.xcode_settings.GetSwiftHeaderPath(
+                config_name, self.GypPathToNinja)
+            module_inputs += self.WriteFrameworkHeaders(
+                ninja_file, [swift_header],
+                self.xcode_settings.GetBundlePublicHeadersFolderPath())
+
+            # Appending Swift info to the module map file in the /Modules folder
+            module_name = self.xcode_settings.GetProductModuleName(config_name)
+            module_map_path = self._GetModuleMapFilePath()
+            variables = {
+                'module_name': module_name,
+                'swift_header': os.path.basename(swift_header),
+                'map_file': QuoteShellArgument(module_map_path, self.flavor)
+            }
+            module_map_stamp = self.GypPathToUniqueOutput('swiftmodulemap.stamp')
+            self.ninja.build(module_map_stamp, 'swiftmodulemap', [swift_header],
+                            order_only=map_depends, variables=variables)
+            module_inputs.append(module_map_stamp)
+
+        # Resulting Swift actions stamp
+        module_stamp = self.GypPathToUniqueOutput('swift_module.stamp')
+        self.ninja.build(module_stamp, 'stamp', module_inputs)
+        self.target.module_stamp = module_stamp
+        ninja_file.newline()
+
+    def AppendSwiftLinkerOptions(self, ldflags, implicit_deps, config_name, spec,
+                                arch):
+        if not self.uses_swift:
+            return
+        if arch is None:
+            arch = self.archs[0]
+        module_path = self._GetSwiftModulePath(config_name, spec, arch)
+        ldflags += self.xcode_settings.GetSwiftLdflags(config_name, module_path)
+        implicit_deps.add(module_path)
+
+    def CopySwiftLibsToBundle(self, spec):
+        is_final = spec['type'] in ('executable', 'loadable_module')
+        # We should try to copy swift libs even if the target does not have
+        # swift files itself, because some of the dependent libs can have it.
+        if not gyp.xcode_emulation.IsSwiftSupported() or not is_final:
+            return None
+
+        if not self.target.binary:
+            return None
+
+        # Copying all needed Swift dylibs right into the bundle
+        app_frameworks_path = (
+            self.xcode_settings.GetBundleFrameworksFolderPath())
+        codesign_key = self.xcode_settings.GetCodeSignIdentityKey(
+            self.config_name) or ''
+        variables = {
+            'platform': self.xcode_settings.GetPlatform(self.config_name),
+            'dst_path': QuoteShellArgument(app_frameworks_path, self.flavor),
+            'codesign_key': codesign_key}
+        swift_libs_stamp = QuoteShellArgument(
+            self.GypPathToUniqueOutput('copyswiftlibs.stamp'), self.flavor)
+        self.ninja.build(swift_libs_stamp, 'copyswiftlibs', self.target.binary,
+                        variables=variables)
+        return swift_libs_stamp
+
     def WriteSources(
         self,
         ninja_file,
@@ -1024,6 +1331,7 @@ class NinjaWriter(object):
         precompiled_header,
         spec,
     ):
+        print("WriteSources")
         """Write build rules to compile all of |sources|."""
         if self.toolset == "host":
             self.ninja.variable("ar", "$ar_host")
@@ -1073,11 +1381,13 @@ class NinjaWriter(object):
         spec,
         arch=None,
     ):
+        print("WriteSourcesForArch")
         """Write build rules to compile all of |sources|."""
 
         extra_defines = []
         if self.flavor == "mac":
-            cflags = self.xcode_settings.GetCflags(config_name, arch=arch)
+            cflags = self.xcode_settings.GetCflags(config_name,
+                self.GypPathToNinjaWithToolchain, arch=arch)
             cflags_c = self.xcode_settings.GetCflagsC(config_name)
             cflags_cc = self.xcode_settings.GetCflagsCC(config_name)
             cflags_objc = ["$cflags_c"] + self.xcode_settings.GetCflagsObjC(config_name)
@@ -1215,6 +1525,14 @@ class NinjaWriter(object):
         self.WriteVariableList(ninja_file, "arflags", map(self.ExpandSpecial, arflags))
         ninja_file.newline()
         outputs = []
+
+        if self.flavor == 'mac':
+            print("self.flavor == 'mac'")
+            swift_outputs, swift_module = self.WriteSwiftSourcesForArch(
+                ninja_file, config_name, sources, predepends, spec, arch)
+            outputs += swift_outputs
+            predepends = swift_module or predepends
+
         has_rc_source = False
         for source in sources:
             filename, ext = os.path.splitext(source)
@@ -1430,7 +1748,7 @@ class NinjaWriter(object):
             ldflags = self.xcode_settings.GetLdflags(
                 config_name,
                 self.ExpandSpecial(generator_default_variables["PRODUCT_DIR"]),
-                self.GypPathToNinja,
+                self.GypPathToNinjaWithToolchain,
                 arch,
             )
             ldflags = env_ldflags + ldflags
@@ -1452,6 +1770,8 @@ class NinjaWriter(object):
                 self.toplevel_build,
             )
             ldflags = env_ldflags + ldflags
+            self.AppendSwiftLinkerOptions(
+                ldflags, implicit_deps, config_name, spec, arch)
             self.WriteVariableList(ninja_file, "manifests", manifest_files)
             implicit_deps = implicit_deps.union(manifest_files)
             if intermediate_manifest:
@@ -1574,6 +1894,7 @@ class NinjaWriter(object):
         return linked_binary
 
     def WriteTarget(self, spec, config_name, config, link_deps, compile_deps):
+        self.WriteSwiftModule(self.ninja, config_name, spec)
         extra_link_deps = any(
             self.target_outputs.get(dep).Linkable()
             for dep in spec.get("dependencies", [])
@@ -1649,6 +1970,13 @@ class NinjaWriter(object):
 
     def WriteMacBundle(self, spec, mac_bundle_depends, is_empty):
         assert self.is_mac_bundle
+
+        swift_frameworks = self.CopySwiftLibsToBundle(spec)
+        if swift_frameworks:
+            mac_bundle_depends.append(swift_frameworks)
+        if self.target.module_stamp:
+            mac_bundle_depends.append(self.target.module_stamp)
+
         package_framework = spec["type"] in ("shared_library", "loadable_module")
         output = self.ComputeMacBundleOutput()
         if is_empty:
@@ -2363,6 +2691,9 @@ def GenerateOutputForConfig(target_list, target_dicts, data, params, config_name
             master_ninja.variable(
                 "readelf", GetEnvironFallback(["READELF_target", "READELF"], readelf)
             )
+    if flavor == 'mac' and gyp.xcode_emulation.IsSwiftSupported():
+        master_ninja.variable(
+            'swift', subprocess.check_output(['xcrun', '-f', 'swift']))
 
     if generator_supports_multiple_toolsets:
         if not cc_host:
@@ -2436,6 +2767,59 @@ def GenerateOutputForConfig(target_list, target_dicts, data, params, config_name
             ),
             depfile="$out.d",
             deps=deps,
+        )
+        master_ninja.rule(
+            'swift',
+            description='SWIFT $out_module',
+            command=(
+                '$swift -frontend -c $in $swift_compile_flags '
+                '-emit-module-path $out_module '
+                '-emit-objc-header-path $out_header '
+                '-num-threads $num_threads '
+                '$out_objects'
+            )
+        )
+        master_ninja.rule(
+            'swift_perfile',
+            description='SWIFT $out_obj',
+            command=(
+                '$swift -frontend -c -primary-file $in $swift_compile_flags '
+                '-emit-module-path $out_module '
+                '-o $out_obj'
+            )
+        )
+        master_ninja.rule(
+            'swift_merge',
+            description='SWIFT MERGE $out_module',
+            command=(
+                '$swift -frontend -emit-module $in $swift_merge_flags '
+                '-emit-objc-header-path $out_header '
+                '-o $out_module'
+            )
+        )
+        master_ninja.rule(
+            'copyswiftlibs',
+            description='COPY SWIFT LIBS $out',
+            command=(
+                './gyp-mac-tool copy-swift-libs $in $platform $dst_path '
+                '"$codesign_key" $out'
+            )
+        )
+        master_ninja.rule(
+            'modulemap',
+            description='MODULE MAP $map_file',
+            command=(
+                './gyp-mac-tool build-module-map-file '
+                '$module_name $umbrella_header $map_file $out'
+            )
+        )
+        master_ninja.rule(
+            'swiftmodulemap',
+            description='SWIFT MODULE MAP $map_file',
+            command=(
+                './gyp-mac-tool append-swift-to-module-map-file '
+                '$module_name $swift_header $map_file $out'
+            )
         )
     else:
         # TODO(scottmg) Separate pdb names is a test to see if it works around

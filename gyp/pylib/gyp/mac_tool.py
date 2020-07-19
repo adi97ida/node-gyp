@@ -10,6 +10,7 @@ These functions are executed via gyp-mac-tool when using the Makefile generator.
 
 from __future__ import print_function
 
+import errno
 import fcntl
 import fnmatch
 import glob
@@ -190,7 +191,7 @@ class MacTool(object):
 
         # Go through all the environment variables and replace them as variables in
         # the file.
-        IDENT_RE = re.compile(r"[_/\s]")
+        IDENT_RE = re.compile(r"[_/\s_-]")
         for key in os.environ:
             if key.startswith("_"):
                 continue
@@ -435,6 +436,64 @@ class MacTool(object):
         # to get absolute path name for inputs.
         command_line.extend(map(os.path.abspath, inputs))
         subprocess.check_call(command_line)
+
+    def _EnsureDirExists(self, dir_path):
+        if not os.path.exists(dir_path):
+            try:
+                os.makedirs(dir_path)
+            except OSError as exc:
+                if exc.errno != errno.EEXIST:
+                    raise
+
+    def _MakeStamp(self, stamp):
+        self._EnsureDirExists(os.path.dirname(stamp))
+        subprocess.check_call(['touch', stamp])
+
+    def ExecCopySwiftLibs(self, executable_path, platform, dst_path, codesign_key,
+                            stamp):
+        args = [
+        'xcrun', 'swift-stdlib-tool', '--copy',
+        '--scan-executable', executable_path,
+        '--platform', platform,
+        '--destination', dst_path,
+        ]
+        if codesign_key:
+            args.extend(['--sign', codesign_key])
+
+        # Using only PATH variable from environment,
+        # to prevent swift-stdlib-tool from using variables like
+        # CODE_SIGNING_REQUIRED which may be set by Xcode
+        env = {'PATH' : os.environ.get('PATH', '')}
+        p = subprocess.Popen(args, env=env)
+        retcode = p.wait()
+        if retcode != 0:
+            raise subprocess.CalledProcessError(retcode, args)
+
+        self._MakeStamp(stamp)
+
+    def ExecBuildModuleMapFile(self, module_name, umbrella_header, map_file,
+                                stamp):
+        self._EnsureDirExists(os.path.dirname(map_file))
+        with open(map_file, 'w') as f:
+            f.write(
+                'framework module %s {\n'
+                '  umbrella header \"%s\"\n'
+                '  export *\n'
+                '  module * { export * }\n'
+                '}\n' % (module_name, umbrella_header))
+
+        self._MakeStamp(stamp)
+
+    def ExecAppendSwiftToModuleMapFile(self, module_name, swift_header, map_file,
+                                        stamp):
+        self._EnsureDirExists(os.path.dirname(map_file))
+        with open(map_file, 'a') as f:
+            f.write(
+                'module %s.Swift {\n'
+                '  header \"%s\"\n'
+                '}\n' % (module_name, swift_header))
+
+        self._MakeStamp(stamp)
 
     def ExecMergeInfoPlist(self, output, *inputs):
         """Merge multiple .plist files into a single .plist file."""
