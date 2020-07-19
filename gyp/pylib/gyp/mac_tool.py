@@ -10,6 +10,7 @@ These functions are executed via gyp-mac-tool when using the Makefile generator.
 
 from __future__ import print_function
 
+import errno
 import fcntl
 import fnmatch
 import glob
@@ -190,7 +191,7 @@ class MacTool(object):
 
         # Go through all the environment variables and replace them as variables in
         # the file.
-        IDENT_RE = re.compile(r"[_/\s]")
+        IDENT_RE = re.compile(r"[_/\s_-]")
         for key in os.environ:
             if key.startswith("_"):
                 continue
@@ -357,12 +358,33 @@ class MacTool(object):
             filelist[os.path.join(framework_name, filename)] = header
         WriteHmap(out, filelist)
 
+    def ExecCompileSwiftFrameworkHeaderMap(self, out, framework, *all_headers):
+        framework_name = os.path.basename(framework).split(".")[0]
+        all_headers = [os.path.abspath(header) for header in all_headers]
+        filelist = {}
+        for header in all_headers:
+            filename = os.path.basename(header)
+            filelist[filename] = header
+            filelist[os.path.join(framework_name, filename)] = header
+        WriteHmap(out, filelist)
+
     def ExecCopyIosFrameworkHeaders(self, framework, *copy_headers):
         header_path = os.path.join(framework, "Headers")
         if not os.path.exists(header_path):
             os.makedirs(header_path)
         for header in copy_headers:
             shutil.copy(header, os.path.join(header_path, os.path.basename(header)))
+
+    def ExecSymlinkSwiftFrameworkComponents(self, framework):
+        headers_path = os.path.join(framework, "Headers")
+        pwd = os.getcwd()
+        headers_symlink_path = os.path.join(pwd, framework, "Versions", "A", "Headers")
+        os.symlink(headers_symlink_path, headers_path)
+
+        modules_path = os.path.join(framework, "Modules")
+        pwd = os.getcwd()
+        modules_symlink_path = os.path.join(pwd, framework, "Versions", "A", "Modules")
+        os.symlink(modules_symlink_path, modules_path)
 
     def ExecCompileXcassets(self, keys, *inputs):
         """Compiles multiple .xcassets files into a single .car file.
@@ -435,6 +457,63 @@ class MacTool(object):
         # to get absolute path name for inputs.
         command_line.extend(map(os.path.abspath, inputs))
         subprocess.check_call(command_line)
+
+    def _EnsureDirExists(self, dir_path):
+        if not os.path.exists(dir_path):
+            try:
+                os.makedirs(dir_path)
+            except OSError as exc:
+                if exc.errno != errno.EEXIST:
+                    raise
+
+    def _MakeStamp(self, stamp):
+        self._EnsureDirExists(os.path.dirname(stamp))
+        subprocess.check_call(["touch", stamp])
+
+    def ExecCopySwiftLibs(self, executable_path, platform, dst_path, codesign_key,
+                            stamp):
+        args = [
+        "xcrun", "swift-stdlib-tool", "--copy",
+        "--scan-executable", executable_path,
+        "--platform", platform,
+        "--destination", dst_path,
+        "--filter-for-swift-os"
+        ]
+        if codesign_key:
+            args.extend(["--sign", codesign_key])
+
+        env = {"PATH" : os.environ.get("PATH", "")}
+        p = subprocess.Popen(args, env=env)
+        retcode = p.wait()
+        if retcode != 0:
+            raise subprocess.CalledProcessError(retcode, args)
+
+        self._MakeStamp(stamp)
+
+    def ExecBuildModuleMapFile(self, module_name, umbrella_header, map_file,
+                                stamp):
+        self._EnsureDirExists(os.path.dirname(map_file))
+        with open(map_file, "w") as f:
+            f.write(
+                "framework module %s {\n"
+                "  umbrella header \"%s\"\n"
+                "  export *\n"
+                "  module * { export * }\n"
+                "}\n" % (module_name, umbrella_header))
+
+        self._MakeStamp(stamp)
+
+    def ExecAppendSwiftToModuleMapFile(self, module_name, swift_header, map_file,
+                                        stamp):
+        self._EnsureDirExists(os.path.dirname(map_file))
+        with open(map_file, "a") as f:
+            f.write(
+                "module %s.Swift {\n"
+                "  requires objc\n"
+                "  header \"%s\"\n"
+                "}\n" % (module_name, swift_header))
+
+        self._MakeStamp(stamp)
 
     def ExecMergeInfoPlist(self, output, *inputs):
         """Merge multiple .plist files into a single .plist file."""
