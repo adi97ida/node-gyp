@@ -1242,7 +1242,7 @@ class NinjaWriter(object):
 
     def WriteSwiftModule(self, ninja_file, config_name, spec):
         """Write build rules to build Swift module data"""
-        if not self.uses_swift:
+        if not hasattr(self, 'uses_swift') or not self.uses_swift:
             return
 
         assert self.xcode_settings.AreModulesEnabled(config_name)
@@ -1287,7 +1287,7 @@ class NinjaWriter(object):
 
     def AppendSwiftLinkerOptions(self, ldflags, implicit_deps, config_name, spec,
                                 arch):
-        if not self.uses_swift:
+        if not hasattr(self, 'uses_swift') or not self.uses_swift:
             return
         if arch is None:
             arch = self.archs[0]
