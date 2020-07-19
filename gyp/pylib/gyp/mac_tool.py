@@ -447,23 +447,23 @@ class MacTool(object):
 
     def _MakeStamp(self, stamp):
         self._EnsureDirExists(os.path.dirname(stamp))
-        subprocess.check_call(['touch', stamp])
+        subprocess.check_call(["touch", stamp])
 
     def ExecCopySwiftLibs(self, executable_path, platform, dst_path, codesign_key,
                             stamp):
         args = [
-        'xcrun', 'swift-stdlib-tool', '--copy',
-        '--scan-executable', executable_path,
-        '--platform', platform,
-        '--destination', dst_path,
+        "xcrun", "swift-stdlib-tool", "--copy",
+        "--scan-executable", executable_path,
+        "--platform", platform,
+        "--destination", dst_path,
         ]
         if codesign_key:
-            args.extend(['--sign', codesign_key])
+            args.extend(["--sign", codesign_key])
 
         # Using only PATH variable from environment,
         # to prevent swift-stdlib-tool from using variables like
         # CODE_SIGNING_REQUIRED which may be set by Xcode
-        env = {'PATH' : os.environ.get('PATH', '')}
+        env = {"PATH" : os.environ.get("PATH", "")}
         p = subprocess.Popen(args, env=env)
         retcode = p.wait()
         if retcode != 0:
@@ -474,24 +474,24 @@ class MacTool(object):
     def ExecBuildModuleMapFile(self, module_name, umbrella_header, map_file,
                                 stamp):
         self._EnsureDirExists(os.path.dirname(map_file))
-        with open(map_file, 'w') as f:
+        with open(map_file, "w") as f:
             f.write(
-                'framework module %s {\n'
-                '  umbrella header \"%s\"\n'
-                '  export *\n'
-                '  module * { export * }\n'
-                '}\n' % (module_name, umbrella_header))
+                "framework module %s {\n"
+                "  umbrella header \"%s\"\n"
+                "  export *\n"
+                "  module * { export * }\n"
+                "}\n" % (module_name, umbrella_header))
 
         self._MakeStamp(stamp)
 
     def ExecAppendSwiftToModuleMapFile(self, module_name, swift_header, map_file,
                                         stamp):
         self._EnsureDirExists(os.path.dirname(map_file))
-        with open(map_file, 'a') as f:
+        with open(map_file, "a") as f:
             f.write(
-                'module %s.Swift {\n'
-                '  header \"%s\"\n'
-                '}\n' % (module_name, swift_header))
+                "module %s.Swift {\n"
+                "  header \"%s\"\n"
+                "}\n" % (module_name, swift_header))
 
         self._MakeStamp(stamp)
 

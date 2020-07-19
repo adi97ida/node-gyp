@@ -591,17 +591,16 @@ class XcodeSettings(object):
             cflags.append("-Wconstant-conversion")
 
         if self._AreModulesEnabled():
-            print("_AreModulesEnabled")
-            cflags.append('-fmodules')
+            cflags.append("-fmodules")
             module_cache_path = self._Settings().get(
-                'CLANG_MODULE_CACHE_PATH', self._GetDefaultClangModuleCachePath())
+                "CLANG_MODULE_CACHE_PATH", self._GetDefaultClangModuleCachePath())
             if arch:
                 module_cache_path = os.path.join(module_cache_path, arch)
-            cflags.append('-fmodules-cache-path=\'%s\'' % module_cache_path)
+            cflags.append("-fmodules-cache-path=\'%s\'" % module_cache_path)
             if self._IsModuleDefined():
-                cflags.append('-Xclang -fmodule-implementation-of -Xclang ' +
+                cflags.append("-Xclang -fmodule-implementation-of -Xclang " +
                             self._GetProductModuleName())
-            cflags.append('-F.')
+            cflags.append("-F.")
 
         if self._Test("GCC_CHAR_IS_UNSIGNED_CHAR", "YES", default="NO"):
             cflags.append("-funsigned-char")
@@ -704,7 +703,7 @@ class XcodeSettings(object):
         config = self.spec["configurations"][self.configname]
         framework_dirs = config.get("mac_framework_dirs", [])
         for directory in framework_dirs:
-            cflags.append('-F' + gyp_to_build_path(directory))
+            cflags.append("-F" + gyp_to_build_path(directory))
 
         self.configname = None
         return cflags
@@ -716,7 +715,7 @@ class XcodeSettings(object):
         return res
 
     def _AreModulesEnabled(self):
-        res = self._Test('CLANG_ENABLE_MODULES', 'YES', default='NO')
+        res = self._Test("CLANG_ENABLE_MODULES", "YES", default="NO")
         return res
 
     def IsModuleDefined(self, configname):
@@ -726,7 +725,7 @@ class XcodeSettings(object):
         return res
 
     def _IsModuleDefined(self):
-        res = self._Test('DEFINES_MODULE', 'YES', default='NO')
+        res = self._Test("DEFINES_MODULE", "YES", default="NO")
         return res
 
     def IsSwiftWMOEnabled(self, configname):
@@ -736,7 +735,7 @@ class XcodeSettings(object):
         return res
 
     def _IsSwiftWMOEnabled(self):
-        return self._Test('SWIFT_OPTIMIZATION_LEVEL', '-Owholemodule', default='-O')
+        return self._Test("SWIFT_OPTIMIZATION_LEVEL", "-Owholemodule", default="-O")
 
     def GetProductModuleName(self, configname):
         self.configname = configname
@@ -745,9 +744,9 @@ class XcodeSettings(object):
         return swift_module_name
 
     def _GetProductModuleName(self):
-        default_module_name = self.spec['target_name'].replace('-', '_')
+        default_module_name = self.spec["target_name"].replace("-", "_")
         return self._Settings().get(
-            'PRODUCT_MODULE_NAME', default_module_name)
+            "PRODUCT_MODULE_NAME", default_module_name)
 
     def GetSwiftHeaderPath(self, configname, gyp_path_to_build_path, arch=None):
         self.configname = configname
@@ -757,113 +756,110 @@ class XcodeSettings(object):
 
     def _GetSwiftHeaderPath(self, gyp_path_to_build_path, arch):
         swift_header_name = self._Settings().get(
-            'SWIFT_OBJC_INTERFACE_HEADER_NAME',
-            self._GetProductModuleName() + '-Swift.h')
+            "SWIFT_OBJC_INTERFACE_HEADER_NAME",
+            self._GetProductModuleName() + "-Swift.h")
         # SWIFT_OBJC_INTERFACE_HEADER_NAME must just a file name without path
         assert not os.path.dirname(swift_header_name)
         if arch:
-            swift_header_name = re.sub(r'\.h$', '.' + arch + '.h', swift_header_name)
-        swift_header_path = os.path.join('$!INTERMEDIATE_DIR', swift_header_name)
+            swift_header_name = re.sub(r"\.h$", "." + arch + ".h", swift_header_name)
+        swift_header_path = os.path.join("$!INTERMEDIATE_DIR", swift_header_name)
         swift_header_path = gyp_path_to_build_path(swift_header_path)
         return swift_header_path
 
     def _GetCommonLibsPath(self):
-        developer_dir = subprocess.check_output(['xcode-select', '-p']).strip()
+        developer_dir = subprocess.check_output(["xcode-select", "-p"]).strip().decode(sys.stdout.encoding)
         base_toolchain_path = os.path.join(
-            developer_dir, 'Toolchains/XcodeDefault.xctoolchain')
+            developer_dir, "Toolchains/XcodeDefault.xctoolchain")
         base_toolchain_path = os.path.normpath(base_toolchain_path)
 
-        libs_path = os.path.join(base_toolchain_path, 'usr', 'lib')
+        libs_path = os.path.join(base_toolchain_path, "usr", "lib")
         assert os.path.exists(libs_path)
         return libs_path
 
     def GetPlatform(self, configname):
         sdk_path_basename = os.path.basename(self._SdkPath(configname))
-        if sdk_path_basename.lower().startswith('iphonesimulator'):
-            platform = 'iphonesimulator'
-        elif sdk_path_basename.lower().startswith('iphoneos'):
-            platform = 'iphoneos'
-        elif sdk_path_basename.lower().startswith('macosx'):
-            platform = 'macosx'
+        if sdk_path_basename.lower().startswith("iphonesimulator"):
+            platform =  "iphonesimulator"
+        elif sdk_path_basename.lower().startswith("iphoneos"):
+            platform = "iphoneos"
+        elif sdk_path_basename.lower().startswith("macosx"):
+            platform = "macosx"
         else:
-            assert False, 'Unexpected platform'
+            assert False, "Unexpected platform"
 
         return platform
 
     def _GetDefaultClangModuleCachePath(self):
-        return os.path.join(os.path.expanduser('~'),
-                            'Library/Developer/Xcode/DerivedData/ModuleCache')
+        return os.path.join(os.path.expanduser("~"),
+                            "Library/Developer/Xcode/DerivedData/ModuleCache")
 
     def _GetSwiftCommonFlags(self, gyp_path_to_build_path, arch):
-        print("_GetSwiftCommonFlags")
         assert arch
 
         swift_flags = []
-        swift_flags.append('-enable-objc-interop')
+        swift_flags.append("-enable-objc-interop")
 
         if self._IsModuleDefined():
-            swift_flags.append('-import-underlying-module')
+            swift_flags.append("-import-underlying-module")
 
-        self._Appendf(swift_flags, 'IPHONEOS_DEPLOYMENT_TARGET',
-                    '-target ' + arch + '-apple-ios%s')
-        self._Appendf(swift_flags, 'MACOSX_DEPLOYMENT_TARGET',
-                    '-target ' + arch + '-apple-macosx%s')
+        self._Appendf(swift_flags, "IPHONEOS_DEPLOYMENT_TARGET",
+                    "-target " + arch + "-apple-ios%s")
+        self._Appendf(swift_flags, "MACOSX_DEPLOYMENT_TARGET",
+                    "-target " + arch + "-apple-macosx%s")
 
-        swift_flags.append('-sdk ' + self._SdkPath())
+        swift_flags.append("-sdk " + self._SdkPath())
 
-        swift_flags.append('-g')
+        swift_flags.append("-g")
 
-        swift_flags.append('-parse-as-library')
+        swift_flags.append("-parse-as-library")
 
         self._Appendf(swift_flags,
-                    'CLANG_MODULE_CACHE_PATH',
-                    '-module-cache-path \'%s\'',
+                    "CLANG_MODULE_CACHE_PATH",
+                    "-module-cache-path \"%s\"",
                     self._GetDefaultClangModuleCachePath())
 
-        swift_flags.append('-module-name ' + self._GetProductModuleName())
+        swift_flags.append("-module-name " + self._GetProductModuleName())
 
-        if self._Settings().get('SWIFT_OBJC_BRIDGING_HEADER'):
-            print("self._Settings().get('SWIFT_OBJC_BRIDGING_HEADER')")
-            import_header = self._Settings().get('SWIFT_OBJC_BRIDGING_HEADER')
+        if self._Settings().get("SWIFT_OBJC_BRIDGING_HEADER"):
+            import_header = self._Settings().get("SWIFT_OBJC_BRIDGING_HEADER")
             import_header = gyp_path_to_build_path(import_header)
-            swift_flags.append('-import-objc-header \'' + import_header + '\'')
+            swift_flags.append("-import-objc-header \"" + import_header + "\"")
 
-        config = self.spec['configurations'][self.configname]
-        framework_dirs = config.get('mac_framework_dirs', [])
+        config = self.spec["configurations"][self.configname]
+        framework_dirs = config.get("mac_framework_dirs", [])
         sdk_root = self._SdkPath()
         for directory in framework_dirs:
-            swift_flags.append('-F' + gyp_path_to_build_path(directory))
+            swift_flags.append("-F" + gyp_path_to_build_path(directory))
 
-        swift_flags.append('-F.')
+        swift_flags.append("-F.")
 
-        swift_flags.append('-I.')
-        for i in config.get('include_dirs', []):
-            swift_flags.append('-I' + gyp_path_to_build_path(i))
+        swift_flags.append("-I.")
+        for i in config.get("include_dirs", []):
+            swift_flags.append("-I" + gyp_path_to_build_path(i))
 
         return swift_flags
 
     def GetBundleFrameworksFolderPath(self):
-        return os.path.join(self.GetBundleContentsFolderPath(), 'Frameworks')
+        return os.path.join(self.GetBundleContentsFolderPath(), "Frameworks")
 
     def GetBundlePublicHeadersFolderPath(self):
-        return os.path.join(self.GetBundleContentsFolderPath(), 'Headers')
+        return os.path.join(self.GetBundleContentsFolderPath(), "Headers")
 
     def GetBundlePrivateHeadersFolderPath(self):
-        return os.path.join(self.GetBundleContentsFolderPath(), 'PrivateHeaders')
+        return os.path.join(self.GetBundleContentsFolderPath(), "PrivateHeaders")
 
     def GetBundleModulesFolderPath(self):
-        return os.path.join(self.GetBundleContentsFolderPath(), 'Modules')
+        return os.path.join(self.GetBundleContentsFolderPath(), "Modules")
 
     def GetSwiftCompileFlags(self, configname, gyp_path_to_build_path, arch):
-        print("GetSwiftCompileFlags")
         self.configname = configname
 
         swift_flags = self._GetSwiftCommonFlags(gyp_path_to_build_path, arch)
 
         if self._IsSwiftWMOEnabled():
-            swift_flags.append('-O')
+            swift_flags.append("-O")
         else:
-            self._Appendf(swift_flags, 'SWIFT_OPTIMIZATION_LEVEL', '%s', '-O')
+            self._Appendf(swift_flags, "SWIFT_OPTIMIZATION_LEVEL", "%s", "-O")
 
         self.configname = None
         return swift_flags
@@ -877,20 +873,15 @@ class XcodeSettings(object):
         return swift_flags
 
     def GetSwiftLdflags(self, configname, arch_module_path):
+        print("GetSwiftLdflags")
         ldflags = []
         platform = self.GetPlatform(configname)
         libs_path = self._GetCommonLibsPath()
-        if self.isIOS:
-            # Some crazy hack by Xcode for iOS7 Swift support
-            arclib_path = os.path.join(
-                libs_path, 'arc', 'libarclite_' + platform + '.a')
-            assert os.path.isfile(arclib_path)
-            ldflags.append('-Xlinker -force_load -Xlinker ' + arclib_path)
 
-        swift_libs_path = os.path.join(libs_path, 'swift', platform)
+        swift_libs_path = os.path.join(libs_path, "swift", platform)
         assert os.path.isdir(swift_libs_path)
-        ldflags.append('-Xlinker -add_ast_path -Xlinker ' + arch_module_path)
-        ldflags.append('-L' + swift_libs_path)
+        ldflags.append("-Xlinker -add_ast_path -Xlinker " + arch_module_path)
+        ldflags.append("-L" + swift_libs_path)
         return ldflags
 
     def GetCflagsC(self, configname):
@@ -1135,9 +1126,9 @@ class XcodeSettings(object):
                 + gyp_to_build_path(self._Settings()["ORDER_FILE"])
             )
 
-        if 'BUNDLE_LOADER' in self._Settings():
-            bundle_loader_path = gyp_to_build_path(self._Settings()['BUNDLE_LOADER'])
-            ldflags.append('-bundle_loader ' + bundle_loader_path)
+        if "BUNDLE_LOADER" in self._Settings():
+            bundle_loader_path = gyp_to_build_path(self._Settings()["BUNDLE_LOADER"])
+            ldflags.append("-bundle_loader " + bundle_loader_path)
 
         if arch is not None:
             archs = [arch]
@@ -1159,7 +1150,7 @@ class XcodeSettings(object):
             ldflags.append("-install_name " + install_name.replace(" ", r"\ "))
 
         for rpath in self._Settings().get("LD_RUNPATH_SEARCH_PATHS", []):
-            ldflags.append('-Xlinker -rpath -Xlinker ' + rpath)
+            ldflags.append("-Xlinker -rpath -Xlinker " + rpath)
 
         sdk_root = self._SdkPath()
         if not sdk_root:
@@ -1167,8 +1158,8 @@ class XcodeSettings(object):
         config = self.spec["configurations"][self.configname]
         framework_dirs = config.get("mac_framework_dirs", [])
         for directory in framework_dirs:
-            ldflags.append('-F' + gyp_to_build_path(directory))
-        ldflags.append('-F.')
+            ldflags.append("-F" + gyp_to_build_path(directory))
+        ldflags.append("-F.")
         if self._IsXCTest():
             platform_root = self._XcodePlatformPath(configname)
             if sdk_root and platform_root:
