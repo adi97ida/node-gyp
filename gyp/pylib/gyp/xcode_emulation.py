@@ -597,9 +597,8 @@ class XcodeSettings(object):
             if arch:
                 module_cache_path = os.path.join(module_cache_path, arch)
             cflags.append("-fmodules-cache-path=\'%s\'" % module_cache_path)
-            # if self._IsModuleDefined():
-            #     cflags.append("-Xclang -fmodule-implementation-of -Xclang " +
-            #                 self._GetProductModuleName())
+            if self._IsModuleDefined():
+                cflags.append("-fmodule-name=swift_framework ")
             cflags.append("-F.")
 
         if self._Test("GCC_CHAR_IS_UNSIGNED_CHAR", "YES", default="NO"):
@@ -881,6 +880,7 @@ class XcodeSettings(object):
         assert os.path.isdir(swift_libs_path)
         swift_5_libs_path = os.path.join(libs_path, "swift-5.0", platform)
         assert os.path.isdir(swift_5_libs_path)
+
         ldflags.append("-Xlinker -add_ast_path -Xlinker " + arch_module_path)
         ldflags.append("-L" + swift_libs_path)
         ldflags.append("-L" + swift_5_libs_path)
@@ -1162,6 +1162,7 @@ class XcodeSettings(object):
         for directory in framework_dirs:
             ldflags.append("-F" + gyp_to_build_path(directory))
         ldflags.append("-F.")
+
         if self._IsXCTest():
             platform_root = self._XcodePlatformPath(configname)
             if sdk_root and platform_root:

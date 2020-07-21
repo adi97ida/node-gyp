@@ -358,7 +358,24 @@ class MacTool(object):
             filelist[os.path.join(framework_name, filename)] = header
         WriteHmap(out, filelist)
 
+    def ExecCompileSwiftFrameworkHeaderMap(self, out, framework, *all_headers):
+        framework_name = os.path.basename(framework).split(".")[0]
+        all_headers = [os.path.abspath(header) for header in all_headers]
+        filelist = {}
+        for header in all_headers:
+            filename = os.path.basename(header)
+            filelist[filename] = header
+            filelist[os.path.join(framework_name, filename)] = header
+        WriteHmap(out, filelist)
+
     def ExecCopyIosFrameworkHeaders(self, framework, *copy_headers):
+        header_path = os.path.join(framework, "Headers")
+        if not os.path.exists(header_path):
+            os.makedirs(header_path)
+        for header in copy_headers:
+            shutil.copy(header, os.path.join(header_path, os.path.basename(header)))
+
+    def ExecCopySwiftFrameworkHeaders(self, framework, *copy_headers):
         header_path = os.path.join(framework, "Headers")
         if not os.path.exists(header_path):
             os.makedirs(header_path)
