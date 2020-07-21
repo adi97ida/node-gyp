@@ -597,9 +597,9 @@ class XcodeSettings(object):
             if arch:
                 module_cache_path = os.path.join(module_cache_path, arch)
             cflags.append("-fmodules-cache-path=\'%s\'" % module_cache_path)
-            if self._IsModuleDefined():
-                cflags.append("-Xclang -fmodule-implementation-of -Xclang " +
-                            self._GetProductModuleName())
+            # if self._IsModuleDefined():
+            #     cflags.append("-Xclang -fmodule-implementation-of -Xclang " +
+            #                 self._GetProductModuleName())
             cflags.append("-F.")
 
         if self._Test("GCC_CHAR_IS_UNSIGNED_CHAR", "YES", default="NO"):

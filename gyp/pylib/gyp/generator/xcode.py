@@ -1243,6 +1243,7 @@ exit 1
 
         # Add "mac_framework_headers". These can be valid for both frameworks
         # and static libraries.
+        print("hello")
         if is_bundle or type == "static_library":
             for header in spec.get("mac_framework_headers", []):
                 AddHeaderToTarget(header, pbxp, xct, True)

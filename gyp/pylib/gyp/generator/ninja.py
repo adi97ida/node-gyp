@@ -464,14 +464,16 @@ class NinjaWriter(object):
             actions_depends = [item for item in actions_depends if item]
             compile_depends = [item for item in compile_depends if item]
             module_depends = [item for item in module_depends if item]
+
+            if (self.flavor == "mac" and self.xcode_settings.AreModulesEnabled(config_name)):
+                compile_depends += module_depends
+
             actions_depends = self.WriteCollapsedDependencies(
                 "actions_depends", actions_depends
             )
             compile_depends = self.WriteCollapsedDependencies(
                 "compile_depends", compile_depends
             )
-            # if (self.flavor == 'mac' and self.xcode_settings.AreModulesEnabled(config_name)):
-            #     compile_depends += module_depends
             self.target.preaction_stamp = actions_depends
             self.target.precompile_stamp = compile_depends
 
@@ -490,7 +492,7 @@ class NinjaWriter(object):
         # because no compile ever depends on them.
         compile_depends_stamp = self.target.actions_stamp or compile_depends
 
-        if self.flavor == 'mac':
+        if self.flavor == "mac":
             # Module should be written before compilation, because Swift compiler
             # use it
             module_stamp = self.WriteModule(self.ninja, compile_depends_stamp,
@@ -1086,19 +1088,22 @@ class NinjaWriter(object):
         # Copying headers to framework
         public_headers = map(self.GypPathToNinja,
                             list(spec.get("mac_framework_headers", [])))
+        copied_headers = copy.deepcopy(public_headers)
+
         module_inputs += self.WriteFrameworkHeaders(
             ninja_file, public_headers,
             self.xcode_settings.GetBundlePublicHeadersFolderPath())
-
         private_headers = map(self.GypPathToNinja,
-                            list(spec.get('mac_framework_private_headers', [])))
+                            list(spec.get("mac_framework_private_headers", [])))
+        copied_private_headers = copy.deepcopy(private_headers)
+
         module_inputs += self.WriteFrameworkHeaders(
             ninja_file, private_headers,
             self.xcode_settings.GetBundlePrivateHeadersFolderPath())
 
         module_name = self.xcode_settings.GetProductModuleName(config_name)
         umbrella_header = None
-        for header in public_headers:
+        for header in copied_headers:
             filename, _ = os.path.splitext(os.path.basename(header))
             if filename == module_name:
                 umbrella_header = header
