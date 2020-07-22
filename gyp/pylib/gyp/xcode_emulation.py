@@ -597,8 +597,6 @@ class XcodeSettings(object):
             if arch:
                 module_cache_path = os.path.join(module_cache_path, arch)
             cflags.append("-fmodules-cache-path=\'%s\'" % module_cache_path)
-            if self._IsModuleDefined():
-                cflags.append("-fmodule-name=swift_framework ")
             cflags.append("-F.")
 
         if self._Test("GCC_CHAR_IS_UNSIGNED_CHAR", "YES", default="NO"):
@@ -876,14 +874,14 @@ class XcodeSettings(object):
         platform = self.GetPlatform(configname)
         libs_path = self._GetCommonLibsPath()
 
-        swift_libs_path = os.path.join(libs_path, "swift", platform)
+        swift_toolchain_libs_path = os.path.join(libs_path, "swift", platform)
+        assert os.path.isdir(swift_toolchain_libs_path)
+        swift_libs_path = "/usr/lib/swift"
         assert os.path.isdir(swift_libs_path)
-        swift_5_libs_path = os.path.join(libs_path, "swift-5.0", platform)
-        assert os.path.isdir(swift_5_libs_path)
 
         ldflags.append("-Xlinker -add_ast_path -Xlinker " + arch_module_path)
+        ldflags.append("-L" + swift_toolchain_libs_path)
         ldflags.append("-L" + swift_libs_path)
-        ldflags.append("-L" + swift_5_libs_path)
         return ldflags
 
     def GetCflagsC(self, configname):

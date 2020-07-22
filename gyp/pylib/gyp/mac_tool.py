@@ -375,12 +375,16 @@ class MacTool(object):
         for header in copy_headers:
             shutil.copy(header, os.path.join(header_path, os.path.basename(header)))
 
-    def ExecCopySwiftFrameworkHeaders(self, framework, *copy_headers):
-        header_path = os.path.join(framework, "Headers")
-        if not os.path.exists(header_path):
-            os.makedirs(header_path)
-        for header in copy_headers:
-            shutil.copy(header, os.path.join(header_path, os.path.basename(header)))
+    def ExecSymlinkSwiftFrameworkHeaders(self, framework):
+        headers_path = os.path.join(framework, "Headers")
+        pwd = os.getcwd()
+        headers_symlink_path = os.path.join(pwd, framework, "Versions", "A", "Headers")
+        os.symlink(headers_symlink_path, headers_path)
+
+        modules_path = os.path.join(framework, "Modules")
+        pwd = os.getcwd()
+        modules_symlink_path = os.path.join(pwd, framework, "Versions", "A", "Modules")
+        os.symlink(modules_symlink_path, modules_path)
 
     def ExecCompileXcassets(self, keys, *inputs):
         """Compiles multiple .xcassets files into a single .car file.

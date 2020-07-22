@@ -3112,7 +3112,7 @@ def GenerateOutputForConfig(target_list, target_dicts, data, params, config_name
             description="COMPILE HEADER MAPS AND COPY FRAMEWORK HEADERS $in",
             command="$env ./gyp-mac-tool compile-swift-framework-header-map $out "
             "$framework $in && $env ./gyp-mac-tool "
-            "copy-swift-framework-headers $framework $copy_headers",
+            "symlink-swift-framework-headers $framework",
         )
         master_ninja.rule(
             "mac_tool",
