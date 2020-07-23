@@ -869,19 +869,14 @@ class XcodeSettings(object):
         self.configname = None
         return swift_flags
 
-    def GetSwiftLdflags(self, configname, arch_module_path):
+    def GetSwiftLdflags(self, arch_module_path):
         ldflags = []
-        platform = self.GetPlatform(configname)
-        libs_path = self._GetCommonLibsPath()
 
-        swift_toolchain_libs_path = os.path.join(libs_path, "swift", platform)
-        assert os.path.isdir(swift_toolchain_libs_path)
-        swift_libs_path = "/usr/lib/swift"
-        assert os.path.isdir(swift_libs_path)
+        # Feels bad but necessary for Nan and n-api.
+        ldflags.append("-undefined dynamic_lookup")
 
         ldflags.append("-Xlinker -add_ast_path -Xlinker " + arch_module_path)
-        ldflags.append("-L" + swift_toolchain_libs_path)
-        ldflags.append("-L" + swift_libs_path)
+        ldflags.append("-L/usr/lib/swift")
         return ldflags
 
     def GetCflagsC(self, configname):
