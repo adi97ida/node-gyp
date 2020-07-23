@@ -1300,11 +1300,11 @@ class NinjaWriter(object):
         if arch is None:
             arch = self.archs[0]
         module_path = self._GetSwiftModulePath(config_name, spec, arch)
-        ldflags += self.xcode_settings.GetSwiftLdflags(config_name, module_path)
+        ldflags += self.xcode_settings.GetSwiftLdflags(module_path)
         implicit_deps.add(module_path)
 
     def CopySwiftLibsToBundle(self, spec):
-        is_final = spec["type"] in ("executable", "loadable_module")
+        is_final = spec["type"] in ("executable", "shared_library", "loadable_module")
         # We should try to copy swift libs even if the target does not have
         # swift files itself, because some of the dependent libs can have it.
         if not gyp.xcode_emulation.IsSwiftSupported() or not is_final:
@@ -3112,7 +3112,7 @@ def GenerateOutputForConfig(target_list, target_dicts, data, params, config_name
             description="COMPILE HEADER MAPS AND COPY FRAMEWORK HEADERS $in",
             command="$env ./gyp-mac-tool compile-swift-framework-header-map $out "
             "$framework $in && $env ./gyp-mac-tool "
-            "symlink-swift-framework-headers $framework",
+            "symlink-swift-framework-components $framework",
         )
         master_ninja.rule(
             "mac_tool",
