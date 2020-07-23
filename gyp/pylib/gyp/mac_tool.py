@@ -375,7 +375,7 @@ class MacTool(object):
         for header in copy_headers:
             shutil.copy(header, os.path.join(header_path, os.path.basename(header)))
 
-    def ExecSymlinkSwiftFrameworkHeaders(self, framework):
+    def ExecSymlinkSwiftFrameworkComponents(self, framework):
         headers_path = os.path.join(framework, "Headers")
         pwd = os.getcwd()
         headers_symlink_path = os.path.join(pwd, framework, "Versions", "A", "Headers")
@@ -477,13 +477,11 @@ class MacTool(object):
         "--scan-executable", executable_path,
         "--platform", platform,
         "--destination", dst_path,
+        "--filter-for-swift-os"
         ]
         if codesign_key:
             args.extend(["--sign", codesign_key])
 
-        # Using only PATH variable from environment,
-        # to prevent swift-stdlib-tool from using variables like
-        # CODE_SIGNING_REQUIRED which may be set by Xcode
         env = {"PATH" : os.environ.get("PATH", "")}
         p = subprocess.Popen(args, env=env)
         retcode = p.wait()
@@ -511,6 +509,7 @@ class MacTool(object):
         with open(map_file, "a") as f:
             f.write(
                 "module %s.Swift {\n"
+                "  requires objc\n"
                 "  header \"%s\"\n"
                 "}\n" % (module_name, swift_header))
 
